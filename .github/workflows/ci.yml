@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: py${{ matrix.python }} / wcwidth=${{ matrix.wcwidth }} / cjkwrap=${{ matrix.cjkwrap }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.12", "3.13"]
+        wcwidth: ["with", "without"]
+        cjkwrap: ["with", "without"]
+        exclude:
+          # Keep the matrix small: the full cross product is exercised locally,
+          # CI only needs to prove the three platforms agree.
+          - os: windows-latest
+            python: "3.9"
+          - os: macos-latest
+            python: "3.9"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Install wcwidth
+        run: python -m pip install "wcwidth==0.2.13"
+        if: matrix.wcwidth == 'with'
+
+      - name: Install cjkwrap
+        run: python -m pip install cjkwrap
+        if: matrix.cjkwrap == 'with'
+
+      - name: Hide optional dependencies
+        if: matrix.wcwidth == 'without' || matrix.cjkwrap == 'without'
+        shell: bash
+        run: |
+          # conftest.py is imported by pytest before the test modules, which is
+          # earlier than any sitecustomize trick and independent of the
+          # interpreter's own site-packages.
+          echo 'import sys' > conftest.py
+          if [ "${{ matrix.wcwidth }}" = "without" ]; then
+            echo 'sys.modules["wcwidth"] = None' >> conftest.py
+          fi
+          if [ "${{ matrix.cjkwrap }}" = "without" ]; then
+            echo 'sys.modules["cjkwrap"] = None' >> conftest.py
+          fi
+          cat conftest.py
+
+      - name: Run tests
+        run: python -m pytest tests.py test_crossenv.py -q
+
+      - name: Run reproduce script
+        run: python reproduce.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip ruff
+      - run: ruff check test_crossenv.py
+      - run: python -m py_compile texttable.py test_crossenv.py tests.py

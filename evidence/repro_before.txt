@@ -1,0 +1,28 @@
+=== 复现：上游原版 (unpatched 1.7.2) ===
+python 3.12.10 / unicodedata 15.0.0 / wcwidth absent
+
+texttable  : E:\WorkBuddy-Work\WorkBuddy-0\_xplat\work\upstream\texttable.py
+python     : 3.12.10
+unicodedata: 15.0.0
+wcwidth    : absent
+
+[PASS] D1a  CR at end of cell (CRLF file read with newline='')
+[FAIL] D1b  ZWJ / ZWNJ / ZWSP / BOM / VS16 are zero width
+        U+200D reported 1, expected 0; U+200C reported 1, expected 0; U+200B reported 1, expected 0; U+FEFF reported 1, expected 0; U+FE0F reported 1, expected 0; U+0000 reported 1, expected 0; U+0007 reported 1, expected 0; U+2028 reported 1, expected 0
+[FAIL] D1c  same bytes, Windows vs POSIX read -> same table
+        border widths {'windows(CRLF)': 13, 'posix(normalized)': 12, 'binary+decode': 13}
+[FAIL] D2a  combining + wide marks are zero width (U+3099, U+302A)
+        U+3099 reported 2, expected 0; U+309A reported 2, expected 0; U+302A reported 2, expected 0
+[FAIL] D2b  Hangul medial vowels are zero width
+        U+1160 reported 1, expected 0; U+1161 reported 1, expected 0; U+D7B0 reported 1, expected 0; U+D7CB reported 1, expected 0
+[FAIL] D3a  CJK cell wraps inside its column
+        width 2 -> line widths [6, 6, 6, 8, 6, 6]; width 3 -> line widths [7, 7, 7, 10, 7]; width 4 -> line widths [8, 8, 8, 10, 8]; width 5 -> line widths [9, 9, 9, 10, 9]
+[FAIL] D3b  CJK respects max_width
+        max_width 10 -> [10, 10, 10, 16, 12, 10]; max_width 12 -> [12, 12, 12, 20, 12, 12]; max_width 16 -> [16, 16, 16, 24, 16]; max_width 20 -> [20, 20, 20, 24, 20]
+[FAIL] D3c  emoji respects max_width
+        max_width 12 -> [12, 12, 12, 20, 12]
+[FAIL] D3d  narrow column that cannot fit a wide character raises
+        no exception, broken table emitted
+[PASS] D4   plain ASCII output is unchanged
+
+2/10 checks passed

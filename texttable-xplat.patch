@@ -1,0 +1,225 @@
+--- a/texttable.py
++++ b/texttable.py
+@@ -94,42 +94,202 @@
+ import sys
+ import unicodedata
+ 
+-# define a text wrapping function to wrap some text
+-# to a specific width:
+-# - use cjkwrap if available (better CJK support)
+-# - fallback to textwrap otherwise
+-try:
+-    import cjkwrap
+-    def textwrapper(txt, width):
+-        return cjkwrap.wrap(txt, width)
+-except ImportError:
+-    try:
+-        import textwrap
+-        def textwrapper(txt, width):
+-            return textwrap.wrap(txt, width)
+-    except ImportError:
+-        sys.stderr.write("Can't import textwrap module!\n")
+-        raise
+-
+ # define a function to calculate the rendering width of a unicode character
+ # - use wcwidth if available
+ # - fallback to unicodedata information otherwise
++#
++# Both branches must agree on which characters occupy no column, otherwise the
++# very same input renders at a different width depending on whether the optional
++# (and undeclared) wcwidth package happens to be installed. The fallback used to
++# do four things differently from wcwidth:
++#
++#   1. it counted control / format / separator characters (Cc, Cf, Zl, Zp) as one
++#      column although a terminal gives them none. A cell holding a trailing CR
++#      -- the usual result of reading a text file on Windows with newline='' --
++#      was therefore measured one column too wide, and since textwrap then
++#      silently drops the CR as whitespace the border no longer matched the row;
++#   2. it tested east-asian-width *before* the combining mark, so characters such
++#      as U+3099 COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK were reported as
++#      two columns wide instead of zero;
++#   3. it did not know about combining marks in the Mc (spacing combining) class;
++#   4. it did not know that Hangul medial vowels / final consonants combine with
++#      the preceding leading consonant and occupy no column of their own.
++#
++# The tables below are derived from the intersection of wcwidth 0.2.13 and 0.9.2
++# (the range still published for Python 2 era code and the current one) so that
++# this fallback agrees with every supported wcwidth release rather than with one
++# particular snapshot.
++#
++# Cf entries on which wcwidth releases *disagree*, so they cannot be aligned with
++# the fallback: some releases report 1 column for these, others 0.
++_CF_NOT_ZERO_WIDTH = frozenset((
++    0x00AD, 0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x06DD, 0x070F,
++    0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD,
++))
++
++# Hangul medial vowels and final consonants are category Lo, yet they combine
++# with the preceding leading consonant and take no column of their own.
++_ZERO_WIDTH_RANGES = (
++    (0x1160, 0x11FF),
++    (0xD7B0, 0xD7FF),
++)
++
++
++def _in_zero_width_range(c):
++    cp = ord(c)
++    for low, high in _ZERO_WIDTH_RANGES:
++        if low <= cp <= high:
++            return True
++    return False
++
+ try:
+     import wcwidth
++
+     def uchar_width(c):
+         """Return the rendering width of a unicode character
+         """
+         return max(0, wcwidth.wcwidth(c))
++
+ except ImportError:
+     def uchar_width(c):
+         """Return the rendering width of a unicode character
++
++        Mirrors ``wcwidth.wcwidth`` closely enough that a table is laid out the
++        same way whether or not wcwidth is installed.
+         """
++        # A combining mark never takes a column of its own, not even when
++        # unicodedata also reports a wide east-asian-width for it (U+3099
++        # COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK is both). This test must
++        # therefore come before the east-asian-width test below.
++        category = unicodedata.category(c)
++        if unicodedata.combining(c) or category in ('Mn', 'Me', 'Mc'):
++            return 0
+         if unicodedata.east_asian_width(c) in 'WF':
+             return 2
+-        elif unicodedata.combining(c):
++        if category == 'Cf':
++            return 1 if ord(c) in _CF_NOT_ZERO_WIDTH else 0
++        if category in ('Cc', 'Zl', 'Zp'):
++            return 0
++        if category == 'Lo' and _in_zero_width_range(c):
+             return 0
+-        else:
+-            return 1
++        return 1
++
++
++def uchar_width_len(text):
++    """Return the rendering width of a string, in terminal columns."""
++    return sum(uchar_width(c) for c in text)
++
++
++# define a text wrapping function to wrap some text
++# to a specific width:
++# - use cjkwrap if available (better CJK support)
++# - fallback to textwrap otherwise
++#
++# Plain textwrap wraps by *character count*, while this module measures cells in
++# terminal *columns*. A CJK cell was therefore measured six columns wide and then
++# wrapped at six characters -- twelve columns -- so the row overflowed its own
++# border. Narrow-only text still goes straight to textwrap so that its exact
++# output is preserved for callers that never use wide characters.
++try:
++    import cjkwrap
++
++    def textwrapper(txt, width):
++        return cjkwrap.wrap(txt, width)
++
++except ImportError:
++    try:
++        import textwrap
++
++        _NARROW_ONLY = frozenset(chr(cp) for cp in range(0x20, 0x7F))
++
++        def _is_narrow_only(txt):
++            return all(ch in _NARROW_ONLY for ch in txt)
++
++        def _slice_by_columns(txt, budget):
++            """Split txt so that the first part fits in ``budget`` columns."""
++            used = 0
++            for index, char in enumerate(txt):
++                width_here = uchar_width(char)
++                if used + width_here > budget:
++                    return txt[:index], txt[index:]
++                used += width_here
++            return txt, ""
++
++        class _ColumnWrapper(textwrap.TextWrapper):
++            """textwrap.TextWrapper measuring display columns instead of chars.
++
++            Only the two methods that compare lengths are overridden; chunking
++            and whitespace handling remain exactly as textwrap implements them.
++            """
++
++            def _handle_long_word(self, reversed_chunks, cur_line, cur_len,
++                                  width):
++                if width < 1:
++                    space_left = 1
++                else:
++                    space_left = width - cur_len
++                if self.break_long_words:
++                    head, tail = _slice_by_columns(reversed_chunks[-1],
++                                                   space_left)
++                    if head:
++                        cur_line.append(head)
++                        reversed_chunks[-1] = tail
++                    elif not cur_line:
++                        # A single character is wider than the whole column and
++                        # the line is still empty, so no amount of wrapping can
++                        # make it fit. Say so instead of emitting a row that is
++                        # wider than its own border.
++                        raise ValueError(
++                            "column width %r is too narrow for a character "
++                            "that occupies %d columns"
++                            % (self.width,
++                               uchar_width_len(reversed_chunks[-1][0])))
++                    # else: leave the chunk for the next (empty) line.
++                elif not cur_line:
++                    cur_line.append(reversed_chunks.pop())
++
++            def _wrap_chunks(self, chunks):
++                lines = []
++                if self.width <= 0:
++                    raise ValueError("invalid width %r (must be > 0)"
++                                     % self.width)
++                chunks.reverse()
++                while chunks:
++                    cur_line = []
++                    cur_len = 0
++                    if lines:
++                        indent = self.subsequent_indent
++                    else:
++                        indent = self.initial_indent
++                    width = self.width - uchar_width_len(indent)
++                    if self.drop_whitespace and chunks[-1].strip() == "" \
++                            and lines:
++                        del chunks[-1]
++                    while chunks:
++                        chunk_len = uchar_width_len(chunks[-1])
++                        if cur_len + chunk_len <= width:
++                            cur_line.append(chunks.pop())
++                            cur_len += chunk_len
++                        else:
++                            break
++                    if chunks and uchar_width_len(chunks[-1]) > width:
++                        self._handle_long_word(chunks, cur_line, cur_len,
++                                               width)
++                    if self.drop_whitespace and cur_line \
++                            and cur_line[-1].strip() == "":
++                        del cur_line[-1]
++                    if cur_line:
++                        lines.append(indent + "".join(cur_line))
++                return lines
++
++        def textwrapper(txt, width):
++            if _is_narrow_only(txt):
++                return textwrap.wrap(txt, width)
++            return _ColumnWrapper(width=width).wrap(txt)
++
++    except ImportError:
++        sys.stderr.write("Can't import textwrap module!\n")
++        raise
+ 
+ from functools import reduce
+ 

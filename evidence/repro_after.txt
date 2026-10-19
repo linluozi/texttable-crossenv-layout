@@ -1,0 +1,19 @@
+=== 修复版 ===
+
+texttable  : E:\WorkBuddy-Work\WorkBuddy-0\_xplat\deliver\texttable-xplat-arm\texttable.py
+python     : 3.12.10
+unicodedata: 15.0.0
+wcwidth    : absent
+
+[PASS] D1a  CR at end of cell (CRLF file read with newline='')
+[PASS] D1b  ZWJ / ZWNJ / ZWSP / BOM / VS16 are zero width
+[PASS] D1c  same bytes, Windows vs POSIX read -> same table
+[PASS] D2a  combining + wide marks are zero width (U+3099, U+302A)
+[PASS] D2b  Hangul medial vowels are zero width
+[PASS] D3a  CJK cell wraps inside its column
+[PASS] D3b  CJK respects max_width
+[PASS] D3c  emoji respects max_width
+[PASS] D3d  narrow column that cannot fit a wide character raises
+[PASS] D4   plain ASCII output is unchanged
+
+10/10 checks passed

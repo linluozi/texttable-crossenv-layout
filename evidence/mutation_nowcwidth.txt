@@ -1,0 +1,13 @@
+基线 exit=0  43 passed in 0.14s
+
+变异                             结果         最后一行
+------------------------------------------------------------------------------
+M1 去掉 Cc/Zl/Zp 零宽判定            抓到         5 failed, 38 passed in 0.22s
+M2 去掉 Cf 零宽判定                  抓到         6 failed, 37 passed in 0.27s
+M3 组合标记判定移到 eaw 之后             抓到         4 failed, 39 passed in 0.21s
+M4 去掉 Hangul 零宽区间              抓到         4 failed, 39 passed in 0.17s
+M5 换行器退回纯 textwrap             抓到         11 failed, 32 passed in 0.39s
+M6 切分按字符数而非列数                  抓到         11 failed, 32 passed in 0.20s
+M7 列宽不足时静默塞入                   抓到         1 failed, 42 passed in 0.17s
+
+抓住 7 / 7
